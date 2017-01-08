@@ -1,10 +1,25 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
+""" TO DO
+Send n older messages to a new client
+"""
+
+import time
+import pickle
 import socket
 import sqlite3
 import os.path
-import time
-import pickle
+import threading
+
+
+class Options:
+	hostname = socket.gethostname()
+	serverport = 11011
+	remember_for = 4
+
+
+class State:
+	online_clients = {}
 
 
 dbPath = os.path.dirname(os.path.realpath(__file__)) + '/chat.db'
@@ -14,21 +29,32 @@ if not os.path.exists(dbPath):
 	database.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, TimeSent REAL, Sender TEXT, MessageText TEXT)")
 	exit()
 
-database = sqlite3.connect(dbPath)
-hostname = socket.gethostname()
-# serverport = input('Serverport: ')
-serverport = 11011
+
+def client_check():
+	client_iter = dict(State.online_clients) # The dict() is required, idiot.
+	State.online_clients.clear()
+
+	for i in client_iter.keys():
+		client_iter[i] += 1
+		if client_iter[i] < Options.remember_for: # Number of absent pings the server will remember a client for
+			State.online_clients[i] = client_iter[i]
+
+	time.sleep(1)
+	client_check()
 
 
 def parse_response(response):
+	database = sqlite3.connect(dbPath)
 	response = pickle.loads(response)
 
 	if response['type'] == 'Handshake':
 		client_lastupdate = response['time']
 		client_name = response['sender']
+		State.online_clients[client_name] = 0
 
 		# this does not try to send ALL messages on first connect
-		new_messages = database.execute("SELECT * FROM messages WHERE TimeSent > '{0}' AND Sender != '{1}'".format(client_lastupdate, client_name)).fetchall()
+		new_messages = database.execute("SELECT * FROM messages WHERE TimeSent > '{0}' AND Sender != '{1}'"
+										.format(client_lastupdate, client_name)).fetchall()
 		if new_messages:
 			message_time = new_messages[0][1]
 			message_sender = new_messages[0][2]
@@ -40,6 +66,7 @@ def parse_response(response):
 		server_response = {
 			'type': 'ChatMessage',
 			'time': time.time(),
+			'online_clients': State.online_clients,
 			'message': message
 		}
 
@@ -51,7 +78,8 @@ def parse_response(response):
 		message_time = response['message'][0]
 		message_sender = response['message'][1]
 		message_text = response['message'][2].replace('\'', '\'\'')
-		database.execute("INSERT INTO messages (TimeSent, Sender, MessageText) VALUES ('{0}', '{1}', '{2}')".format(message_time, message_sender, message_text))
+		database.execute("INSERT INTO messages (TimeSent, Sender, MessageText) VALUES ('{0}', '{1}', '{2}')"
+						 .format(message_time, message_sender, message_text))
 		database.commit()
 		return None
 
@@ -59,22 +87,32 @@ def parse_response(response):
 def main():
 	s = socket.socket()
 	s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-	s.bind((hostname, serverport))
+	s.bind((Options.hostname, Options.serverport))
 	s.listen(1)
 
 	while True:
 		client_object, client_addr = s.accept()
-		response = client_object.recv(1024)
+		incoming = client_object.recv(1024)
 
-		server_response = parse_response(response)
+		server_response = parse_response(incoming)
 		if server_response is not None:
 			client_object.send(server_response)
 
 		client_object.close()
 
-try:
-	main()
-except KeyboardInterrupt:
-	database.execute("DELETE FROM messages")
-	database.commit()
-	exit()
+
+def inputprompt():
+	a = input('q to exit> ')
+	if a == 'q':
+		database = sqlite3.connect(dbPath)
+		database.execute("DELETE FROM messages")
+		database.commit()
+		database.close()
+		os._exit(0)
+
+
+if __name__ == '__main__':
+	threading.Thread(target=main).start()
+	threading.Thread(target=client_check, daemon=True).start()
+	threading.Thread(target=inputprompt).start()
+
