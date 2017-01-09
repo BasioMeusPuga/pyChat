@@ -14,7 +14,7 @@ import pickle
 import threading
 
 from PyQt5 import QtWidgets, QtGui
-# sys.path.insert(0, 'resources')
+sys.path.insert(0, 'resources')
 import clientinterface
 import settingsinterface
 
