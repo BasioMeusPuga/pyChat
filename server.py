@@ -13,7 +13,8 @@ import threading
 
 
 class Options:
-	hostname = socket.gethostname()
+	# Everything else seems to fail in case /etc/hosts points localhost to 127.0.0.1
+	hostname = [(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]
 	serverport = 11011
 	remember_for = 4
 
@@ -31,12 +32,12 @@ if not os.path.exists(dbPath):
 
 
 def client_check():
-	client_iter = dict(State.online_clients) # The dict() is required, idiot.
+	client_iter = dict(State.online_clients)  # The dict() is required, idiot.
 	State.online_clients.clear()
 
 	for i in client_iter.keys():
 		client_iter[i] += 1
-		if client_iter[i] < Options.remember_for: # Number of absent pings the server will remember a client for
+		if client_iter[i] < Options.remember_for:  # Number of absent pings the server will remember a client for
 			State.online_clients[i] = client_iter[i]
 
 	time.sleep(1)
@@ -88,6 +89,7 @@ def main():
 	s = socket.socket()
 	s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 	s.bind((Options.hostname, Options.serverport))
+	print('\n' + 'Server running @ {0}:{1}'.format(Options.hostname, Options.serverport))
 	s.listen(1)
 
 	while True:
@@ -102,17 +104,32 @@ def main():
 
 
 def inputprompt():
-	a = input('q to exit> ')
+	a = input('l / q / s > ')
 	if a == 'q':
 		database = sqlite3.connect(dbPath)
 		database.execute("DELETE FROM messages")
 		database.commit()
 		database.close()
 		os._exit(0)
+	elif a == 'l':
+		database = sqlite3.connect(dbPath)
+		all_messages = database.execute("SELECT TimeSent, Sender, MessageText FROM messages").fetchall()
+		if all_messages:
+			for i in all_messages:
+				time_sent = time.ctime(i[0])
+				print('(' + time_sent + ') ' + i[1] + ': ' + i[2])
+		else:
+			print('Nothing yet')
+		inputprompt()
+	elif a == 's':
+		for i in State.online_clients:
+			print(i)
+		inputprompt()
+	else:
+		inputprompt()
 
 
 if __name__ == '__main__':
 	threading.Thread(target=main).start()
 	threading.Thread(target=client_check, daemon=True).start()
 	threading.Thread(target=inputprompt).start()
-

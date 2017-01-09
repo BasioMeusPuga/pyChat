@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'untitled.ui'
+# Form implementation generated from reading ui file 'UI/client-interface.ui'
 #
 # Created by: PyQt5 UI code generator 5.7
 #
@@ -48,6 +48,13 @@ class Ui_MainWindow(object):
         self.statusbar.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.statusbar.setObjectName("statusbar")
         MainWindow.setStatusBar(self.statusbar)
+        self.toolBar = QtWidgets.QToolBar(MainWindow)
+        self.toolBar.setMovable(False)
+        self.toolBar.setIconSize(QtCore.QSize(24, 24))
+        self.toolBar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.toolBar.setFloatable(False)
+        self.toolBar.setObjectName("toolBar")
+        MainWindow.addToolBar(QtCore.Qt.TopToolBarArea, self.toolBar)
 
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
@@ -56,6 +63,7 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Chat Client"))
         self.chatSend.setText(_translate("MainWindow", "Send"))
+        self.toolBar.setWindowTitle(_translate("MainWindow", "toolBar"))
 
 
 if __name__ == "__main__":

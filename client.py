@@ -13,9 +13,10 @@ import random
 import pickle
 import threading
 
-from PyQt5 import QtWidgets
-sys.path.insert(0, 'resources')
+from PyQt5 import QtWidgets, QtGui
+# sys.path.insert(0, 'resources')
 import clientinterface
+import settingsinterface
 
 
 class Options:
@@ -37,10 +38,23 @@ class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
 		super(self.__class__, self).__init__()
 		self.setupUi(self)
 
+		# toolbar
+		settings_icon = QtGui.QIcon('resources/settings.png')
+		exit_icon = QtGui.QIcon('resources/exit.png')
+		self.toolBar.addAction(settings_icon, 'Settings', self.show_settings)
+		self.toolBar.addAction(exit_icon, 'Exit', self.endthis)
+
 		# event definitions
 		self.chatInput.returnPressed.connect(self.sendtext)
 		self.chatSend.clicked.connect(self.sendtext)
 		self.chatInput.setFocus()
+
+	def endthis(self):
+		os._exit(0)
+
+	def show_settings(self):
+		# the settings dialog is setModal(True) so disabling the main window isn't required
+		settings.show()
 
 	def sendtext(self):
 		# Color own name green
@@ -50,6 +64,31 @@ class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
 		form.chatDisplay.insertPlainText('\n')
 		send_message(self.chatInput.text())
 		self.chatInput.clear()
+
+
+class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
+	def __init__(self):
+		super(self.__class__, self).__init__()
+		self.setupUi(self)
+
+		self.settingsNick.setText(Options.nickname)
+		self.settingsServer.setText(Options.hostname + ':' + str(Options.clientport))
+
+		self.settingsOC.accepted.connect(self.new_settings)
+		self.settingsOC.rejected.connect(self.go_back)
+
+	def new_settings(self):
+		# form.setEnabled(True)
+		try:
+			Options.nickname = self.settingsNick.text()
+			Options.hostname = self.settingsServer.text().split(':')[0]
+			Options.clientport = int(self.settingsServer.text().split(':')[1])
+			self.hide()
+		except:
+			pass
+
+	def go_back(self):
+		self.hide()
 
 
 def parse_response(response):
@@ -88,7 +127,7 @@ def check_messages():
 
 		form.statusbar.showMessage('Registered as ' + Options.nickname)
 		s.close()
-	except (ConnectionRefusedError, ConnectionResetError):
+	except (ConnectionRefusedError, ConnectionResetError, OSError):
 		form.statusbar.showMessage('Not connected to server')
 
 	time.sleep(1)
@@ -115,9 +154,10 @@ def send_message(message_string):
 
 
 def main():
-	global form
+	global form, settings
 	app = QtWidgets.QApplication(sys.argv)
 	form = ChatUI()
+	settings = SettingsUI()
 	form.show()
 	app.exec_()
 
