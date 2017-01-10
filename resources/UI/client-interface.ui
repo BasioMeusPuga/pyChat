@@ -27,6 +27,9 @@
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
          <widget class="QTextEdit" name="chatDisplay">
+          <property name="focusPolicy">
+           <enum>Qt::NoFocus</enum>
+          </property>
           <property name="acceptDrops">
            <bool>false</bool>
           </property>

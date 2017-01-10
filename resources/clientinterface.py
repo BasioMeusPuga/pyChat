@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'UI/client-interface.ui'
+# Form implementation generated from reading ui file 'resources/UI/client-interface.ui'
 #
 # Created by: PyQt5 UI code generator 5.7
 #
@@ -26,6 +26,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
         self.chatDisplay = QtWidgets.QTextEdit(self.centralwidget)
+        self.chatDisplay.setFocusPolicy(QtCore.Qt.NoFocus)
         self.chatDisplay.setAcceptDrops(False)
         self.chatDisplay.setReadOnly(True)
         self.chatDisplay.setObjectName("chatDisplay")

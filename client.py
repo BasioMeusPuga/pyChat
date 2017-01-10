@@ -44,6 +44,9 @@ class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
 		self.toolBar.addAction(settings_icon, 'Settings', self.show_settings)
 		self.toolBar.addAction(exit_icon, 'Exit', self.endthis)
 
+		# chat display
+		self.chatDisplay.ensureCursorVisible()
+
 		# event definitions
 		self.chatInput.returnPressed.connect(self.sendtext)
 		self.chatSend.clicked.connect(self.sendtext)
@@ -52,11 +55,16 @@ class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
 	def endthis(self):
 		os._exit(0)
 
+	def move_cursor_to_bottom(self):
+		# move the invisible cursor to the bottom after each addition
+		self.chatDisplay.moveCursor(QtGui.QTextCursor.End, QtGui.QTextCursor.MoveAnchor)
+
 	def show_settings(self):
 		# the settings dialog is setModal(True) so disabling the main window isn't required
 		settings.show()
 
 	def sendtext(self):
+		form.move_cursor_to_bottom()
 		# Color own name green
 		form.chatDisplay.insertHtml(
 			"<html><font color='green'><b>{0}</b></font>{1}</html>"
@@ -78,7 +86,6 @@ class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
 		self.settingsOC.rejected.connect(self.go_back)
 
 	def new_settings(self):
-		# form.setEnabled(True)
 		try:
 			Options.nickname = self.settingsNick.text()
 			Options.hostname = self.settingsServer.text().split(':')[0]
@@ -92,49 +99,55 @@ class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
 
 
 def parse_response(response):
-	State.lastUpdate = response['time']
-
 	# display list of online clients
 	online_clients = response['online_clients']
 	form.chatClients.clear()
 	form.chatClients.addItems(online_clients)
 
 	if response['message'] is not None:
-		form.chatDisplay.insertHtml(
-			"<html><b>{0}</b>{1}</html>"
-				.format(response['message'][1] + ": ", response['message'][2]))
-		form.chatDisplay.insertPlainText('\n')
+		form.move_cursor_to_bottom()
+		for i in response['message']:
+			form.chatDisplay.insertHtml("<html><b>{0}</b>{1}</html>".format(i[1] + ": ", i[2]))
+			form.chatDisplay.insertPlainText('\n')
+			form.move_cursor_to_bottom()
+
+		# set lastUpdate according to the last message received by the client
+		State.lastUpdate = float(response['message'][-1][0])
 
 
 def check_messages():
-	handshake = {
-		'type': 'Handshake',
-		'time': State.lastUpdate,
-		'sender': Options.nickname
-	}
-	handshake_message = pickle.dumps(handshake)
+	while True:
+		handshake = {
+			'type': 'Handshake',
+			'time': State.lastUpdate,
+			'sender': Options.nickname
+		}
+		handshake_message = pickle.dumps(handshake)
 
-	s = socket.socket()
-	try:
-		s.connect((Options.hostname, Options.clientport))
-		s.send(handshake_message)
-
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		try:
-			response = pickle.loads(s.recv(2048))
-			parse_response(response)
-		except EOFError:
-			pass
+			s.connect((Options.hostname, Options.clientport))
+			s.send(handshake_message)
 
-		form.statusbar.showMessage('Registered as ' + Options.nickname)
-		s.close()
-	except (ConnectionRefusedError, ConnectionResetError, OSError):
-		form.statusbar.showMessage('Not connected to server')
+			try:
+				response = pickle.loads(s.recv(2048))
+				parse_response(response)
+			except EOFError:
+				pass
 
-	time.sleep(1)
-	check_messages()
+			form.statusbar.showMessage('Registered as ' + Options.nickname)
+			s.close()
+
+		except (ConnectionRefusedError, ConnectionResetError, OSError):
+			form.statusbar.showMessage('Not connected to server')
+			form.chatClients.clear()
+
+		# this basically decides the polling interval
+		time.sleep(.2)
 
 
 def send_message(message_string):
+	# connected to the sendtext function of the ChatUI class
 	if message_string == '/quit' or message_string == '/exit':
 		os._exit(0)
 
@@ -151,6 +164,7 @@ def send_message(message_string):
 		form.statusbar.showMessage('Registered as ' + Options.nickname)
 	except (ConnectionRefusedError, ConnectionResetError):
 		form.statusbar.showMessage('Not connected to server')
+		form.chatClients.clear()
 
 
 def main():

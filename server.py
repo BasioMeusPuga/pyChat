@@ -32,16 +32,16 @@ if not os.path.exists(dbPath):
 
 
 def client_check():
-	client_iter = dict(State.online_clients)  # The dict() is required, idiot.
-	State.online_clients.clear()
+	while True:
+		client_iter = dict(State.online_clients)  # The dict() is required, idiot.
+		State.online_clients.clear()
 
-	for i in client_iter.keys():
-		client_iter[i] += 1
-		if client_iter[i] < Options.remember_for:  # Number of absent pings the server will remember a client for
-			State.online_clients[i] = client_iter[i]
+		for i in client_iter.keys():
+			client_iter[i] += 1
+			if client_iter[i] < Options.remember_for:  # Number of absent pings the server will remember a client for
+				State.online_clients[i] = client_iter[i]
 
-	time.sleep(1)
-	client_check()
+		time.sleep(1)
 
 
 def parse_response(response):
@@ -56,19 +56,21 @@ def parse_response(response):
 		# this does not try to send ALL messages on first connect
 		new_messages = database.execute("SELECT * FROM messages WHERE TimeSent > '{0}' AND Sender != '{1}'"
 										.format(client_lastupdate, client_name)).fetchall()
+
 		if new_messages:
-			message_time = new_messages[0][1]
-			message_sender = new_messages[0][2]
-			message_text = new_messages[0][3]
-			message = (message_time, message_sender, message_text)
+			messages = []
+			for i in new_messages:
+				message_time = i[1]
+				message_sender = i[2]
+				message_text = i[3]
+				messages.append((message_time, message_sender, message_text))
 		else:
-			message = None
+			messages = None
 
 		server_response = {
 			'type': 'ChatMessage',
-			'time': time.time(),
 			'online_clients': State.online_clients,
-			'message': message
+			'message': messages
 		}
 
 		# return the last message(s) in the database in case the client's last update was before they arrived
@@ -94,7 +96,7 @@ def main():
 
 	while True:
 		client_object, client_addr = s.accept()
-		incoming = client_object.recv(1024)
+		incoming = client_object.recv(2048)
 
 		server_response = parse_response(incoming)
 		if server_response is not None:
@@ -109,8 +111,13 @@ def inputprompt():
 		database = sqlite3.connect(dbPath)
 		database.execute("DELETE FROM messages")
 		database.commit()
+
+		# commented out due to issue 28518 in python 3.6
+		# database.execute("VACUUM")
+
 		database.close()
 		os._exit(0)
+
 	elif a == 'l':
 		database = sqlite3.connect(dbPath)
 		all_messages = database.execute("SELECT TimeSent, Sender, MessageText FROM messages").fetchall()
@@ -121,10 +128,12 @@ def inputprompt():
 		else:
 			print('Nothing yet')
 		inputprompt()
+
 	elif a == 's':
 		for i in State.online_clients:
 			print(i)
 		inputprompt()
+
 	else:
 		inputprompt()
 
@@ -132,4 +141,5 @@ def inputprompt():
 if __name__ == '__main__':
 	threading.Thread(target=main).start()
 	threading.Thread(target=client_check, daemon=True).start()
+	time.sleep(1)
 	threading.Thread(target=inputprompt).start()
