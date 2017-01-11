@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 """ TO DO
-Build message buffer in case of disconnect
+Change keys after n handshakes
 """
 
 import os
@@ -32,7 +32,8 @@ class Options:
 
 class State:
 	serverConnected = False
-	lastUpdate = time.time() # check this and see if you can't get every message already on the server
+	# because of end-to-end encryption, there's really no point in trying to fetch older messages from the server
+	lastUpdate = time.time()
 	onlineClients = None
 
 
@@ -112,7 +113,11 @@ class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
 
 	def new_settings(self):
 		try:
+			old_nick = str(Options.nickname)
 			Options.nickname = self.settingsNick.text()
+			if old_nick != Options.nickname:
+				change_nick(old_nick, Options.nickname)
+
 			Options.hostname = self.settingsServer.text().split(':')[0]
 			Options.clientport = int(self.settingsServer.text().split(':')[1])
 			self.hide()
@@ -125,9 +130,28 @@ class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
 
 def parse_response(response):
 	# display list of online clients
+	try:
+		current_clients = dict(State.onlineClients)
+	except TypeError:
+		current_clients = {}
 	State.onlineClients = response['online_clients']
+	new_clients = [client_new for client_new in State.onlineClients.keys() if client_new not in [clients for clients in current_clients.keys()] and client_new != Options.nickname]
+	clients_bgone = [clients for clients in current_clients.keys() if clients not in [client_new for client_new in State.onlineClients.keys()]]
+
 	form.chatClients.clear()
 	form.chatClients.addItems(State.onlineClients)
+
+	if new_clients:
+		for i in new_clients:
+			form.move_cursor_to_bottom()
+			form.chatDisplay.insertHtml("<html><font color='gray'><i>{0}</i><font></html>".format(i + ' appears. Out of friggin\' nowhere.'))
+			form.chatDisplay.insertPlainText('\n')
+
+	if clients_bgone:
+		for i in clients_bgone:
+			form.move_cursor_to_bottom()
+			form.chatDisplay.insertHtml("<html><font color='gray'><i>{0}</i><font></html>".format(i + ' hath abandoned thee in thy hour of need.'))
+			form.chatDisplay.insertPlainText('\n')
 
 	if response['message'] is not None:
 		for i in response['message']:
@@ -143,15 +167,22 @@ def parse_response(response):
 		# set lastUpdate according to the last message received by the client
 		State.lastUpdate = float(response['message'][-1][0])
 
+
 def check_messages():
+	handshakes_sent = 0
 	while True:
+		# regenerate keys every 25 handshakes (or 5 seconds) - not working
+		handshakes_sent += 1
+		if handshakes_sent >= 5:
+			# encrypt.generate_keypair()
+			handshakes_sent = 0
+
 		handshake = {
 			'type': 'Handshake',
 			'sender': Options.nickname,
 			'time': State.lastUpdate,
 			'publickey': encrypt.publickey
 		}
-
 		handshake_message = pickle.dumps(handshake)
 
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -176,11 +207,19 @@ def check_messages():
 		time.sleep(.2)
 
 
+def change_nick(old_nick, new_nick):
+	chat_message = {
+		'type': 'NickChange',
+		'old_nick': old_nick,
+		'new_nick' : new_nick
+	}
+	one_way_send(chat_message)
+
+
+# connected to the sendtext function of the ChatUI class
 def send_message(message_string):
-	# connected to the sendtext function of the ChatUI class
 	if message_string == '/quit' or message_string == '/exit':
 		os._exit(0)
-
 
 	cipher_text = {}
 	for i in State.onlineClients.keys():
@@ -193,7 +232,11 @@ def send_message(message_string):
 		'sender': Options.nickname,
 		'message': cipher_text
 	}
+	one_way_send(chat_message)
 
+
+# distinct from the handshake because it doesn't expect a reply
+def one_way_send(chat_message):
 	s = socket.socket()
 	try:
 		s.connect((Options.hostname, Options.clientport))

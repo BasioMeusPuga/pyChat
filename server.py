@@ -1,9 +1,5 @@
 #!/usr/bin/python3
 
-""" TO DO
-Send n older messages to a new client
-"""
-
 import time
 import pickle
 import socket
@@ -13,10 +9,10 @@ import threading
 
 
 class Options:
-	# Everything else seems to fail in case /etc/hosts points localhost to 127.0.0.1
+	# everything else seems to fail in case /etc/hosts points localhost to 127.0.0.1
 	hostname = [(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]
 	serverport = 11011
-	remember_for = 4
+	rememberFor = 3
 
 
 class State:
@@ -34,14 +30,15 @@ if not os.path.exists(dbPath):
 
 def client_check():
 	while True:
-		client_iter = dict(State.onlineClients)  # The dict() is required, idiot.
+		# the dict() is required, idiot.
+		# because plz you want to emulate favorite celebrity not literally *become* them
+		client_iter = dict(State.onlineClients)
 		State.onlineClients.clear()
 
 		for i in client_iter.keys():
 			client_iter[i][0] += 1
-			if client_iter[i][0] < Options.remember_for:  # Number of absent pings the server will remember a client for
+			if client_iter[i][0] < Options.rememberFor:  # Number of absent pings the server will remember a client for
 				State.onlineClients[i] = client_iter[i]
-
 		time.sleep(1)
 
 
@@ -49,25 +46,39 @@ def parse_response(response):
 	database = sqlite3.connect(dbPath)
 	response = pickle.loads(response)
 
-	if response['type'] == 'Handshake':
+	if response['type'] == 'NickChange':
+		old_nick = response['old_nick']
+		new_nick = response['new_nick']
+
+		State.onlineClients[new_nick] = State.onlineClients[old_nick]
+		State.onlineClients.pop(old_nick)
+		return None
+
+	elif response['type'] == 'Handshake':
 		client_name = response['sender']
 		client_lastupdate = response['time']
 		client_publickey = response['publickey']
+		# the first element is 0 because it resets the "forget me" counter on each new ping
 		State.onlineClients[client_name] = [0, client_publickey]
 
-		# this does not try to send ALL messages on first connect
+		# new messages are sent according to the last stated update time.
+		# I've no idea how this works across timezones.
 		new_messages = database.execute("SELECT * FROM messages WHERE TimeSent > '{0}' AND Sender != '{1}'"
 										.format(client_lastupdate, client_name)).fetchall()
 
+		# when in doubt, return None
 		if new_messages:
 			messages = []
 			for i in new_messages:
-				message_time = i[1]
-				message_sender = i[2]
+				try:
+					message_time = i[1]
+					message_sender = i[2]
+					message_text = pickle.loads(i[3])
 
-				message_text = pickle.loads(i[3])
-				message_text_this_recipient = message_text[client_name]
-				messages.append((message_time, message_sender, message_text_this_recipient))
+					message_text_this_recipient = message_text[client_name]
+					messages.append((message_time, message_sender, message_text_this_recipient))
+				except KeyError:
+					messages = None
 		else:
 			messages = None
 
@@ -76,8 +87,6 @@ def parse_response(response):
 			'online_clients': State.onlineClients,
 			'message': messages
 		}
-
-		# return the last message(s) in the database in case the client's last update was before they arrived
 		return pickle.dumps(server_response)
 
 	elif response['type'] == 'ChatMessage':
@@ -90,7 +99,6 @@ def parse_response(response):
 		database.execute("INSERT INTO messages (TimeSent, Sender, MessageText) VALUES (?, ?, ?)",
 						 (message_time, message_sender, message_text))
 		database.commit()
-
 		return None
 
 
