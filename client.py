@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 """ TO DO
-Encryption
 Build message buffer in case of disconnect
 """
 
@@ -12,7 +11,9 @@ import socket
 import random
 import pickle
 import threading
+import libnacl.public
 
+# gui imports - sys.path.insert allows shifting of modules away from the root directory
 from PyQt5 import QtWidgets, QtGui
 sys.path.insert(0, 'resources')
 import clientinterface
@@ -30,7 +31,31 @@ class Options:
 
 
 class State:
-	lastUpdate = time.time()
+	serverConnected = False
+	lastUpdate = time.time() # check this and see if you can't get every message already on the server
+	onlineClients = None
+
+
+class Encryption:
+	def __init__(self):
+		self.keypair = None
+		self.publickey = None
+		self.secretkey = None
+
+	def generate_keypair(self):
+		self.keypair = libnacl.public.SecretKey()
+		self.publickey = self.keypair.pk
+		self.secretkey = self.keypair.sk
+
+	def generate_ciphertext(self, otherdudespublickey, plain_text):
+		myBox = libnacl.public.Box(self.secretkey, otherdudespublickey)
+		cipher_text = myBox.encrypt(plain_text)
+		return cipher_text
+
+	def generate_plaintext(self, otherdudespublickey, cipher_text):
+		myBox = libnacl.public.Box(self.secretkey, otherdudespublickey)
+		plain_text = myBox.decrypt(cipher_text)
+		return plain_text.decode()
 
 
 class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
@@ -64,12 +89,12 @@ class ChatUI(QtWidgets.QMainWindow, clientinterface.Ui_MainWindow):
 		settings.show()
 
 	def sendtext(self):
-		form.move_cursor_to_bottom()
-		# Color own name green
-		form.chatDisplay.insertHtml(
+		self.move_cursor_to_bottom()
+		# color own name green
+		self.chatDisplay.insertHtml(
 			"<html><font color='green'><b>{0}</b></font>{1}</html>"
 				.format(Options.nickname + ': ', self.chatInput.text()))
-		form.chatDisplay.insertPlainText('\n')
+		self.chatDisplay.insertPlainText('\n')
 		send_message(self.chatInput.text())
 		self.chatInput.clear()
 
@@ -100,28 +125,33 @@ class SettingsUI(QtWidgets.QDialog, settingsinterface.Ui_chatSettings):
 
 def parse_response(response):
 	# display list of online clients
-	online_clients = response['online_clients']
+	State.onlineClients = response['online_clients']
 	form.chatClients.clear()
-	form.chatClients.addItems(online_clients)
+	form.chatClients.addItems(State.onlineClients)
 
 	if response['message'] is not None:
-		form.move_cursor_to_bottom()
 		for i in response['message']:
-			form.chatDisplay.insertHtml("<html><b>{0}</b>{1}</html>".format(i[1] + ": ", i[2]))
-			form.chatDisplay.insertPlainText('\n')
+			message_sender = i[1]
+			message_sender_publickey = State.onlineClients[message_sender][1]
+			message_ciphertext = i[2]
+			message_plaintext = encrypt.generate_plaintext(message_sender_publickey, message_ciphertext)
+
 			form.move_cursor_to_bottom()
+			form.chatDisplay.insertHtml("<html><b>{0}</b>{1}</html>".format(message_sender + ": ", message_plaintext))
+			form.chatDisplay.insertPlainText('\n')
 
 		# set lastUpdate according to the last message received by the client
 		State.lastUpdate = float(response['message'][-1][0])
-
 
 def check_messages():
 	while True:
 		handshake = {
 			'type': 'Handshake',
+			'sender': Options.nickname,
 			'time': State.lastUpdate,
-			'sender': Options.nickname
+			'publickey': encrypt.publickey
 		}
+
 		handshake_message = pickle.dumps(handshake)
 
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -151,9 +181,17 @@ def send_message(message_string):
 	if message_string == '/quit' or message_string == '/exit':
 		os._exit(0)
 
+
+	cipher_text = {}
+	for i in State.onlineClients.keys():
+		if i != Options.nickname:
+			cipher_text[i] = encrypt.generate_ciphertext(State.onlineClients[i][1], str.encode(message_string))
+
 	chat_message = {
 		'type': 'ChatMessage',
-		'message': [time.time(), Options.nickname, message_string]
+		'time': time.time(),
+		'sender': Options.nickname,
+		'message': cipher_text
 	}
 
 	s = socket.socket()
@@ -168,6 +206,12 @@ def send_message(message_string):
 
 
 def main():
+	# initialize encryption
+	global encrypt
+	encrypt = Encryption()
+	encrypt.generate_keypair()
+
+	# initialize the gui
 	global form, settings
 	app = QtWidgets.QApplication(sys.argv)
 	form = ChatUI()

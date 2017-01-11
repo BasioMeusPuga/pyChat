@@ -44,7 +44,7 @@ class Ui_chatSettings(object):
         _translate = QtCore.QCoreApplication.translate
         chatSettings.setWindowTitle(_translate("chatSettings", "Settings"))
         self.label.setText(_translate("chatSettings", "Nickname"))
-        self.label_2.setText(_translate("chatSettings", "Server (x.x.x.x:<port>"))
+        self.label_2.setText(_translate("chatSettings", "Server (x.x.x.x:<port>)"))
 
 
 if __name__ == "__main__":

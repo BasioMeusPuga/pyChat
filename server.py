@@ -20,26 +20,27 @@ class Options:
 
 
 class State:
-	online_clients = {}
+	onlineClients = {}
 
 
 dbPath = os.path.dirname(os.path.realpath(__file__)) + '/chat.db'
 if not os.path.exists(dbPath):
 	print('First run. Creating db and exiting.')
 	database = sqlite3.connect(dbPath)
-	database.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, TimeSent REAL, Sender TEXT, MessageText TEXT)")
+	# MessageText is BLOB because the server will only receive encrypted bytestream data
+	database.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, TimeSent REAL, Sender TEXT, MessageText BLOB)")
 	exit()
 
 
 def client_check():
 	while True:
-		client_iter = dict(State.online_clients)  # The dict() is required, idiot.
-		State.online_clients.clear()
+		client_iter = dict(State.onlineClients)  # The dict() is required, idiot.
+		State.onlineClients.clear()
 
 		for i in client_iter.keys():
-			client_iter[i] += 1
-			if client_iter[i] < Options.remember_for:  # Number of absent pings the server will remember a client for
-				State.online_clients[i] = client_iter[i]
+			client_iter[i][0] += 1
+			if client_iter[i][0] < Options.remember_for:  # Number of absent pings the server will remember a client for
+				State.onlineClients[i] = client_iter[i]
 
 		time.sleep(1)
 
@@ -49,9 +50,10 @@ def parse_response(response):
 	response = pickle.loads(response)
 
 	if response['type'] == 'Handshake':
-		client_lastupdate = response['time']
 		client_name = response['sender']
-		State.online_clients[client_name] = 0
+		client_lastupdate = response['time']
+		client_publickey = response['publickey']
+		State.onlineClients[client_name] = [0, client_publickey]
 
 		# this does not try to send ALL messages on first connect
 		new_messages = database.execute("SELECT * FROM messages WHERE TimeSent > '{0}' AND Sender != '{1}'"
@@ -62,14 +64,16 @@ def parse_response(response):
 			for i in new_messages:
 				message_time = i[1]
 				message_sender = i[2]
-				message_text = i[3]
-				messages.append((message_time, message_sender, message_text))
+
+				message_text = pickle.loads(i[3])
+				message_text_this_recipient = message_text[client_name]
+				messages.append((message_time, message_sender, message_text_this_recipient))
 		else:
 			messages = None
 
 		server_response = {
 			'type': 'ChatMessage',
-			'online_clients': State.online_clients,
+			'online_clients': State.onlineClients,
 			'message': messages
 		}
 
@@ -78,12 +82,15 @@ def parse_response(response):
 
 	elif response['type'] == 'ChatMessage':
 		# put the incoming message in the database
-		message_time = response['message'][0]
-		message_sender = response['message'][1]
-		message_text = response['message'][2].replace('\'', '\'\'')
-		database.execute("INSERT INTO messages (TimeSent, Sender, MessageText) VALUES ('{0}', '{1}', '{2}')"
-						 .format(message_time, message_sender, message_text))
+		message_time = response['time']
+		message_sender = response['sender']
+
+		# message_text is being pickled again because how do I even unknown length dictionary into a row?
+		message_text = pickle.dumps(response['message'])
+		database.execute("INSERT INTO messages (TimeSent, Sender, MessageText) VALUES (?, ?, ?)",
+						 (message_time, message_sender, message_text))
 		database.commit()
+
 		return None
 
 
@@ -120,17 +127,17 @@ def inputprompt():
 
 	elif a == 'l':
 		database = sqlite3.connect(dbPath)
-		all_messages = database.execute("SELECT TimeSent, Sender, MessageText FROM messages").fetchall()
+		all_messages = database.execute("SELECT TimeSent, Sender FROM messages").fetchall()
 		if all_messages:
 			for i in all_messages:
 				time_sent = time.ctime(i[0])
-				print('(' + time_sent + ') ' + i[1] + ': ' + i[2])
+				print(time_sent + ': ' + i[1])
 		else:
 			print('Nothing yet')
 		inputprompt()
 
 	elif a == 's':
-		for i in State.online_clients:
+		for i in State.onlineClients:
 			print(i)
 		inputprompt()
 

@@ -35,7 +35,7 @@
      <item>
       <widget class="QLabel" name="label_2">
        <property name="text">
-        <string>Server (x.x.x.x:&lt;port&gt;</string>
+        <string>Server (x.x.x.x:&lt;port&gt;)</string>
        </property>
        <property name="alignment">
         <set>Qt::AlignCenter</set>
